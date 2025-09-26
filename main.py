@@ -3,8 +3,10 @@ import logging
 from collections import deque
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.types import BufferedInputFile
 from config import BOT_TOKEN
 from ollama_client import OllamaClient
+from meme_generator import MemeGenerator
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 ollama_client = OllamaClient()
+meme_generator = MemeGenerator()
 
 # Хранилище сообщений и их связей
 message_storage = {}  # {message_id: {message_data}}
@@ -85,6 +88,133 @@ async def start_command(message: types.Message):
         f"Напишите сообщение начинающееся с слова `{BOT_TRIGGER_WORD}`\n\n"
         f"📚 Бот запоминает контекст цепочки диалога (глубина: {MAX_CHAIN_DEPTH} сообщений)."
     )
+
+@dp.message(Command("meme"))
+async def meme_command(message: types.Message):
+    """Обработчик команды для создания мемов"""
+    try:
+        print("Получено сообщение:", message.text)
+        print("Есть фото:", bool(message.photo))
+        print("Caption:", message.caption)
+        
+        # Способ 1: Проверяем caption (текст прикрепленный к фото)
+        if message.caption and message.caption.startswith('/meme'):
+            # Используем текст из caption
+            meme_text = message.caption.split(' ', 1)[1].strip() if ' ' in message.caption else ""
+            use_caption = True
+        elif message.text and message.text.startswith('/meme'):
+            # Используем текст из message.text
+            meme_text = message.text.split(' ', 1)[1].strip() if ' ' in message.text else ""
+            use_caption = False
+        else:
+            await message.answer(
+                "📝 **Использование команды /meme:**\n\n"
+                "`/meme ваш текст` - создать мем с текстом\n"
+                "`/meme ваш текст` + фото - создать мем на вашем фото\n\n"
+                "**Примеры:**\n"
+                "`/meme Привет мир!`\n"
+                "Отправьте фото с подписью `/meme Это тестовый мем`"
+            )
+            return
+        
+        # Проверяем, что текст не пустой
+        if not meme_text:
+            await message.answer("❌ Пожалуйста, укажите текст для мема после команды /meme")
+            return
+        
+        print(f"Текст мема: '{meme_text}'")
+        print(f"Используем caption: {use_caption}")
+        
+        # Проверяем, есть ли прикрепленное фото
+        if message.photo:
+            print("Обрабатываем фото...")
+            # Скачиваем фото
+            photo = message.photo[-1]  # Берем самую большую версию фото
+            file_info = await bot.get_file(photo.file_id)
+            downloaded_file = await bot.download_file(file_info.file_path)
+            
+            # Создаем мем на основе пользовательского фото
+            meme_image = await meme_generator.create_meme_from_image(
+                image_data=downloaded_file.read(),
+                text=meme_text
+            )
+            
+        else:
+            print("Создаем мем из шаблона...")
+            # Создаем мем со стандартным шаблоном
+            meme_image = await meme_generator.create_meme_from_template(
+                template_name="default",
+                text=meme_text
+            )
+        
+        # Отправляем результат
+        meme_file = BufferedInputFile(meme_image, filename="meme.jpg")
+        await message.answer_photo(
+            meme_file,
+            caption=f"🎨 Ваш мем готов!\nТекст: {meme_text}"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error creating meme: {e}")
+        await message.answer("❌ Произошла ошибка при создании мема. Попробуйте позже.")
+
+# @dp.message(Command("memetemplates"))
+# async def meme_templates_command(message: types.Message):
+#     """Показать доступные шаблоны мемов"""
+#     try:
+#         templates = await meme_generator.get_available_templates()
+#         templates_text = "📋 **Доступные шаблоны мемов:**\n\n" + "\n".join(
+#             f"• {name}" for name in templates
+#         )
+#         await message.answer(templates_text)
+#     except Exception as e:
+#         logger.error(f"Error getting templates: {e}")
+#         await message.answer("❌ Ошибка при получении списка шаблонов.")
+
+# Обработчик для создания мемов через ключевое слово
+@dp.message(lambda message: message.text and message.text.startswith("хуба мем"))
+async def handle_meme_request(message: types.Message):
+    """Обработчик создания мемов через ключевое слово 'хуба мем'"""
+    try:
+        # Извлекаем текст для мема
+        text_parts = message.text.split(' ', 2)
+        if len(text_parts) < 3:
+            await message.answer(
+                "📝 **Создание мема:**\n\n"
+                "Напишите: `хуба мем ваш текст`\n"
+                "Или прикрепите фото с текстом: `хуба мем ваш текст`\n\n"
+                "**Пример:** `хуба мем Когда код наконец работает`"
+            )
+            return
+        
+        meme_text = text_parts[2].strip()
+        
+        # Проверяем, есть ли прикрепленное фото
+        if message.photo:
+            photo = message.photo[-1]
+            file_info = await bot.get_file(photo.file_id)
+            downloaded_file = await bot.download_file(file_info.file_path)
+            
+            meme_image = await meme_generator.create_meme_from_image(
+                image_data=downloaded_file.read(),
+                text=meme_text
+            )
+        else:
+            meme_image = await meme_generator.create_meme_from_template(
+                template_name="default",
+                text=meme_text
+            )
+        
+        # Отправляем мем
+        meme_file = BufferedInputFile(meme_image, filename="meme.jpg")
+        await message.answer_photo(
+            meme_file,
+            caption=f"🎨 Мем готов!\nТекст: {meme_text}"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error handling meme request: {e}")
+        await message.answer("❌ Ошибка при создании мема.")
 
 @dp.message(Command("ping"))
 async def ping_command(message: types.Message):
