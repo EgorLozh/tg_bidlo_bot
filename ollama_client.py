@@ -8,29 +8,34 @@ class OllamaClient:
         self.host = OLLAMA_HOST
         logging.info(f"Инициализирован OllamaClient с моделью: {self.model}")
     
-    def generate_response(self, user_message: str) -> str:
-        """Генерация ответа через chat API (лучше для системных промптов)"""
+    def generate_response(self, user_message: str, context_messages: list = None) -> str:
+        """Генерация ответа с учетом контекста"""
         try:
             url = f"{self.host}/api/chat"
             
+            # Формируем сообщения для контекста
+            messages = []
+            
+            # Добавляем системный промпт
+            messages.append({
+                "role": "system",
+                "content": SYSTEM_PROMPT
+            })
+            
+            messages.append({
+                "role": "user",
+                "content": self._create_prompt(user_message, context_messages)
+            })
+            
             payload = {
                 "model": self.model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": SYSTEM_PROMPT
-                    },
-                    {
-                        "role": "user", 
-                        "content": user_message
-                    }
-                ],
+                "messages": messages,
                 "stream": False
             }
             
-            logging.info(f"Отправка запроса к {url} с моделью {self.model}")
-            
-            response = requests.post(url, json=payload, timeout=60)
+            logging.info(f"Отправка запроса с {len(messages)} сообщениями в контексте")
+            logging.info(f"Сообщения к llm {payload}")
+            response = requests.post(url, json=payload, timeout=120)
             response.raise_for_status()
             
             result = response.json()
@@ -55,3 +60,16 @@ class OllamaClient:
         cleaned_text = re.sub(r'\n\s*\n', '\n', cleaned_text)
         cleaned_text = cleaned_text.strip()
         return cleaned_text if cleaned_text else "Извините, не удалось сгенерировать ответ."
+    
+    def _create_prompt(self, user_message, context_messages):
+        """Создает промпт для Ollama"""
+        old_messages = "\n".join([f"{message['role']}: {message['content']}" for message in context_messages])
+        prompt = f"""
+Вот история сооющений который раньше были в чате:
+<old_messages>
+{old_messages}
+</old_messages>
+
+Тебе нужно продолжить этот диалог и вернуть следующее сообщение
+"""
+        return prompt
