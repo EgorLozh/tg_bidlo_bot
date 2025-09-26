@@ -171,50 +171,6 @@ async def meme_command(message: types.Message):
 #         logger.error(f"Error getting templates: {e}")
 #         await message.answer("❌ Ошибка при получении списка шаблонов.")
 
-# Обработчик для создания мемов через ключевое слово
-@dp.message(lambda message: message.text and message.text.startswith("хуба мем"))
-async def handle_meme_request(message: types.Message):
-    """Обработчик создания мемов через ключевое слово 'хуба мем'"""
-    try:
-        # Извлекаем текст для мема
-        text_parts = message.text.split(' ', 2)
-        if len(text_parts) < 3:
-            await message.answer(
-                "📝 **Создание мема:**\n\n"
-                "Напишите: `хуба мем ваш текст`\n"
-                "Или прикрепите фото с текстом: `хуба мем ваш текст`\n\n"
-                "**Пример:** `хуба мем Когда код наконец работает`"
-            )
-            return
-        
-        meme_text = text_parts[2].strip()
-        
-        # Проверяем, есть ли прикрепленное фото
-        if message.photo:
-            photo = message.photo[-1]
-            file_info = await bot.get_file(photo.file_id)
-            downloaded_file = await bot.download_file(file_info.file_path)
-            
-            meme_image = await meme_generator.create_meme_from_image(
-                image_data=downloaded_file.read(),
-                text=meme_text
-            )
-        else:
-            meme_image = await meme_generator.create_meme_from_template(
-                template_name="default",
-                text=meme_text
-            )
-        
-        # Отправляем мем
-        meme_file = BufferedInputFile(meme_image, filename="meme.jpg")
-        await message.answer_photo(
-            meme_file,
-            caption=f"🎨 Мем готов!\nТекст: {meme_text}"
-        )
-        
-    except Exception as e:
-        logger.error(f"Error handling meme request: {e}")
-        await message.answer("❌ Ошибка при создании мема.")
 
 @dp.message(Command("ping"))
 async def ping_command(message: types.Message):
